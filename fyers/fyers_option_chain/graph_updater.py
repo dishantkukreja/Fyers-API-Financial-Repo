@@ -14,11 +14,11 @@ class RealTimeGraph:
         self.call_oi_change_data = []
         self.put_oi_change_data = []
 
-        # Create lines for plotting
-        self.call_oi_line, = self.ax.plot([], [], label="Call OI", linestyle='-', marker='o', color='blue', lw=2)
-        self.put_oi_line, = self.ax.plot([], [], label="Put OI", linestyle='-', marker='x', color='red', lw=2)
-        self.call_oi_change_line, = self.ax.plot([], [], label="Change in Call OI", linestyle='--', color='green', lw=2)
-        self.put_oi_change_line, = self.ax.plot([], [], label="Change in Put OI", linestyle='--', color='orange', lw=2)
+        # Line style customization
+        self.call_oi_line, = self.ax.plot([], [], label="Call OI", linestyle='-', marker='o', color='blue', lw=2, markersize=8, markerfacecolor='blue')
+        self.put_oi_line, = self.ax.plot([], [], label="Put OI", linestyle='-', marker='x', color='red', lw=2, markersize=8, markerfacecolor='red')
+        self.call_oi_change_line, = self.ax.plot([], [], label="Change in Call OI", linestyle='--', color='green', lw=2, markersize=8, markerfacecolor='green')
+        self.put_oi_change_line, = self.ax.plot([], [], label="Change in Put OI", linestyle='--', color='orange', lw=2, markersize=8, markerfacecolor='orange')
 
         # Cursor for hover functionality
         self.cursor = mplcursors.cursor([self.call_oi_line, self.put_oi_line, self.call_oi_change_line, self.put_oi_change_line], hover=True)
@@ -58,9 +58,9 @@ class RealTimeGraph:
         self.ax.autoscale_view()  # Autoscale the view
 
         self.ax.legend(loc="upper left")
-        self.ax.set_xlabel('Time')
-        self.ax.set_ylabel('Open Interest (OI)')
-        self.ax.set_title('Real-time OI Data')
+        self.ax.set_xlabel('Time', fontsize=14, fontweight='bold')
+        self.ax.set_ylabel('Open Interest (OI)', fontsize=14, fontweight='bold')
+        self.ax.set_title('Real-time OI Data', fontsize=16, fontweight='bold')
 
     def find_closest_index(self, value):
         """Find the index of the closest value in self.x_data."""
