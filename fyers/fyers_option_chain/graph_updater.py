@@ -5,6 +5,7 @@ import matplotlib.ticker as ticker
 from data_fetcher import *
 import numpy as np
 
+
 class RealTimeGraph:
     def __init__(self):
         self.fig, self.ax = plt.subplots()
@@ -24,6 +25,8 @@ class RealTimeGraph:
         self.cursor = mplcursors.cursor([self.call_oi_line, self.put_oi_line, self.call_oi_change_line, self.put_oi_change_line], hover=True)
         self.cursor.connect("add", self.on_hover)
         self.cursor.connect("remove", self.on_remove)
+
+        self.tooltip = None
 
     def update_graph(self, data):
         # Append new data
@@ -69,53 +72,73 @@ class RealTimeGraph:
 
     def on_hover(self, sel):
         """Display the data when hovering over a point on the graph."""
+        # Merge all relevant data into a single tooltip box
         label = sel.artist.get_label()  # Get the label of the line
         x_value = sel.target[0]  # This is the x-coordinate of the hovered point
 
         # Find the closest index to the hovered x_value
         index = self.find_closest_index(x_value)
 
-        # Handle the hover based on the label and index
-        if label == 'Call OI':
-            oi_value = self.call_oi_data[index]
-        elif label == 'Put OI':
-            oi_value = self.put_oi_data[index]
-        elif label == 'Change in Call OI':
-            oi_value = self.call_oi_change_data[index]
-        elif label == 'Change in Put OI':
-            oi_value = self.put_oi_change_data[index]
+        # Gather all values to display
+        call_oi_value = self.call_oi_data[index]
+        put_oi_value = self.put_oi_data[index]
+        call_oi_change_value = self.call_oi_change_data[index]
+        put_oi_change_value = self.put_oi_change_data[index]
+        # Example price (replace this with actual price data if available)
+        price = 23278.5  # Replace with dynamic price if available
 
-        # Display the actual data in the tooltip
-        sel.annotation.set_text(f'{label}: {oi_value:,.0f}')  # Formatted for better readability
+        tooltip_text = (
+            f"CE OI Change: {call_oi_change_value:,.0f}\n"
+            f"PE OI Change: {put_oi_change_value:,.0f}\n"
+            f"CE OI: {call_oi_value:,.2f}\n"
+            f"PE OI: {put_oi_value:,.2f}\n"
+        )
+
+        if self.tooltip is None:
+            self.tooltip = sel.annotation
+
+        # Display all data points in a single box
+        sel.annotation.set_text(tooltip_text)
+        sel.annotation.set_visible(True)  # Make sure the tooltip is visible
 
     def on_remove(self, sel):
         """Clear the tooltip when the hover is removed."""
-        sel.annotation.set_visible(False)  # Explicitly hide the tooltip when unhovering
-
+        if self.tooltip:
+            self.tooltip.set_visible(False)  # Hide the tooltip
     def animate(self, data_fetcher):
         def update(frame):
             # Fetch data using the correct method from FyersAPI
             data = data_fetcher.fetch_option_chain_data()
+            print(f"Response - 'callOi': {data['callOi']}")
+            print(f"Response - 'putOi': {data['putOi']}")
+            print("-----")
+
             if data:
-                call_oi = 0
-                put_oi = 0
+                # Get total open interest for call and put options directly from the response
+                call_oi = data.get('callOi', 0)
+                put_oi = data.get('putOi', 0)
+
+                # Calculate change in open interest (using 'oich' from the response for individual options)
                 call_oi_change = 0
                 put_oi_change = 0
-                
-                # Safely access 'oi' and 'prev_oi' for call and put options
+
+                # Loop through the options chain and calculate changes in OI for call and put options
                 for option in data.get('optionsChain', []):
                     option_type = option.get('option_type')
-                    oi = option.get('oi', 0)
-                    prev_oi = option.get('prev_oi', 0)
+                    oi_change = option.get('oich', 0)  # Change in open interest for this specific option
 
                     if option_type == 'CE':  # Call option
-                        call_oi += oi
-                        call_oi_change += (oi - prev_oi)
+                        call_oi_change += oi_change
                     elif option_type == 'PE':  # Put option
-                        put_oi += oi
-                        put_oi_change += (oi - prev_oi)
+                        put_oi_change += oi_change
 
-                # Update graph data
+                print(f"Processed - 'callOi': {call_oi}")
+                print(f"Processed - 'putOi': {put_oi}")
+                print(f"Processed - 'callOiChange': {call_oi_change}")
+                print(f"Processed - 'putOiChange': {put_oi_change}")
+                print("--------------------------------")
+                
+                # Update graph data with the correctly fetched and processed data
                 self.update_graph({
                     'callOi': call_oi,
                     'putOi': put_oi,
@@ -126,3 +149,4 @@ class RealTimeGraph:
 
         ani = FuncAnimation(self.fig, update, interval=5000, cache_frame_data=False)  # Update every 5 seconds
         plt.show()
+
