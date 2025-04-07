@@ -182,72 +182,78 @@ def generate_oi_figure(symbol_data, symbol):
 
     return fig
 
-
-
 def generate_change_figure(symbol_data, symbol):
-    """Generates a Plotly figure for the change in OI data with improved styling."""
+    """Generates a Plotly figure with two separate y-axes for Change in OI data:
+       - Left axis for Change in Call OI
+       - Right axis for Change in Put OI
+       Removes range sliders/controls at the bottom.
+    """
+    # Convert stored ISO strings to datetime objects from x_data_change
     x_dt = [parse_datetime(dt) for dt in symbol_data['x_data_change']]
-    fig = go.Figure()
-
-    # Trace for Change in Call OI
-    fig.add_trace(go.Scatter(
-        x=x_dt,
-        y=symbol_data['call_oi_change_data'],
-        mode='lines+markers',
-        name='Change in Call OI',
-        line=dict(color='blue', width=2),
-        marker=dict(size=4),
-        hoverinfo='text',
-        text=[
-            f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Call OI Change: {v:,}"
-            for dt, v in zip(symbol_data['x_data_change'], symbol_data['call_oi_change_data'])
-        ]
-    ))
-
-    # Trace for Change in Put OI
-    fig.add_trace(go.Scatter(
-        x=x_dt,
-        y=symbol_data['put_oi_change_data'],
-        mode='lines+markers',
-        name='Change in Put OI',
-        line=dict(color='red', width=2),
-        marker=dict(size=4),
-        hoverinfo='text',
-        text=[
-            f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Put OI Change: {v:,}"
-            for dt, v in zip(symbol_data['x_data_change'], symbol_data['put_oi_change_data'])
-        ]
-    ))
-
+    
+    # Create a figure with 1 row, 1 column, but 2 separate y-axes
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Trace for Change in Call OI on the left axis
+    fig.add_trace(
+        go.Scatter(
+            x=x_dt,
+            y=symbol_data['call_oi_change_data'],
+            mode='lines+markers',
+            name='Change in Call OI',
+            line=dict(color='blue', width=2),
+            marker=dict(size=4),
+            hoverinfo='text',
+            text=[
+                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Call OI: {v:,}"
+                for dt, v in zip(symbol_data['x_data_change'], symbol_data['call_oi_change_data'])
+            ]
+        ),
+        secondary_y=False  # left y-axis
+    )
+    
+    # Trace for Change in Put OI on the right axis
+    fig.add_trace(
+        go.Scatter(
+            x=x_dt,
+            y=symbol_data['put_oi_change_data'],
+            mode='lines+markers',
+            name='Change in Put OI',
+            line=dict(color='red', width=2),
+            marker=dict(size=4),
+            hoverinfo='text',
+            text=[
+                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Put OI: {v:,}"
+                for dt, v in zip(symbol_data['x_data_change'], symbol_data['put_oi_change_data'])
+            ]
+        ),
+        secondary_y=True  # right y-axis
+    )
+    
+    # Update layout: remove range slider/selector and set styling
     fig.update_layout(
         title=f"Real-time Change in Open Interest (OI) Data for {symbol}",
-        xaxis_title="Time",
-        yaxis_title="Change in OI",
-        hovermode="x unified",
         template='plotly_white',
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(size=12),
+        hovermode="x unified",
         xaxis=dict(
             showgrid=True,
             gridcolor='lightgrey',
-            tickangle=45,
-            rangeselector=dict(
-                buttons=list([
-                    dict(count=15, label="15m", step="minute", stepmode="backward"),
-                    dict(count=30, label="30m", step="minute", stepmode="backward"),
-                    dict(count=1, label="1h", step="hour", stepmode="backward"),
-                    dict(step="all", label="All")
-                ])
-            ),
-            rangeslider=dict(visible=True),
-            type="date"
+            rangeslider=dict(visible=False),
+            rangeselector=dict(visible=False)
         ),
         yaxis=dict(
+            title="Change in Call OI",
             showgrid=True,
             gridcolor='lightgrey'
+        ),
+        yaxis2=dict(
+            title="Change in Put OI",
+            showgrid=False,
+            overlaying='y',
+            side='right'
         )
     )
+    
     return fig
 
 # Create the Dash app
