@@ -1,7 +1,7 @@
 import dash
 from dash import dcc, html, Output, Input, State, callback_context
 import plotly.graph_objs as go
-from datetime import datetime
+from datetime import datetime, timedelta, time as dt_time
 from plotly.subplots import make_subplots
 import time
 
@@ -51,9 +51,9 @@ def reset_symbol_data(data, symbol):
     data['current_symbol'] = symbol
     return data
 
-def fetch_and_append_data(data, symbol):
+def fetch_and_append_data(data, symbol, strikecount):
     """
-    Fetches the latest data for the given symbol from the API,
+    Fetches the latest data for the given symbol from the API using the provided strikecount,
     then appends both OI data and change in OI data to the respective lists.
     """
     symbol_data = data['symbols_data'].get(symbol, {
@@ -64,14 +64,15 @@ def fetch_and_append_data(data, symbol):
         'call_oi_change_data': [],
         'put_oi_change_data': []
     })
-    api_response = fyers_api.fetch_option_chain_data(symbol=symbol)
+    # Pass strikecount to the API call
+    api_response = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount)
     if api_response:
         # Update OI data
         callOi = api_response.get('callOi', 0)
         putOi = api_response.get('putOi', 0)
         print(f"call {callOi}")
         print(f"put {putOi}")
-        # Store the datetime as an ISO formatted string
+        # Store the current datetime as an ISO formatted string
         now_dt = datetime.now()
         now_iso = now_dt.isoformat()
         symbol_data['x_data'].append(now_iso)
@@ -90,9 +91,16 @@ def fetch_and_append_data(data, symbol):
                 put_oi_change += oi_change
         symbol_data['x_data_change'].append(now_iso)
         symbol_data['call_oi_change_data'].append(call_oi_change)
-        symbol_data['put_oi_change_data'].append(put_oi_change)
+        symbol_data['put_oi_change_data'].append(put_oi_change)  # Example: you can adjust this if needed.
     data['symbols_data'][symbol] = symbol_data
     return data
+
+# def putOi_change_value(putOi):
+#     """
+#     Placeholder for Put OI change calculation.
+#     Currently returns 0; adjust this function if you have a specific calculation.
+#     """
+#     return 0
 
 def parse_datetime(dt):
     """
@@ -107,27 +115,29 @@ def parse_datetime(dt):
             return datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
     return dt
 
+
 def generate_oi_figure(symbol_data, symbol):
-    """Generates a Plotly figure with two separate y-axes:
-       - Left axis for Call OI
-       - Right axis for Put OI
-       Removes range sliders/controls at the bottom.
-    """
-    # Convert stored strings to datetime objects
+    """Generates a Plotly figure with two separate y-axes for OI data, 
+       using smooth spline lines for a more visually appealing chart."""
+    # Convert stored ISO strings to datetime objects
     x_dt = [parse_datetime(dt) for dt in symbol_data['x_data']]
 
     # Create a figure with 1 row, 1 column, but 2 separate y-axes
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
+
     # Trace for Call OI (left axis)
     fig.add_trace(
         go.Scatter(
             x=x_dt,
             y=symbol_data['call_oi_data'],
-            mode='lines+markers',
+            mode='lines',  # no markers
             name='Call OI',
-            line=dict(color='blue', width=2),
-            marker=dict(size=4),
+            line=dict(
+                color='blue',
+                width=3,
+                shape='spline',      # Use spline for smooth curves
+                smoothing=1.3        # Adjust smoothing factor (0–1.3 typically)
+            ),
             hoverinfo='text',
             text=[
                 f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Call OI: {v:,}"
@@ -142,10 +152,14 @@ def generate_oi_figure(symbol_data, symbol):
         go.Scatter(
             x=x_dt,
             y=symbol_data['put_oi_data'],
-            mode='lines+markers',
+            mode='lines',
             name='Put OI',
-            line=dict(color='red', width=2),
-            marker=dict(size=4),
+            line=dict(
+                color='red',
+                width=3,
+                shape='spline',
+                smoothing=1.3
+            ),
             hoverinfo='text',
             text=[
                 f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Put OI: {v:,}"
@@ -163,7 +177,6 @@ def generate_oi_figure(symbol_data, symbol):
         xaxis=dict(
             showgrid=True,
             gridcolor='lightgrey',
-            # Removes range slider/selector lines
             rangeslider=dict(visible=False),
             rangeselector=dict(visible=False)
         ),
@@ -182,55 +195,61 @@ def generate_oi_figure(symbol_data, symbol):
 
     return fig
 
+
 def generate_change_figure(symbol_data, symbol):
-    """Generates a Plotly figure with two separate y-axes for Change in OI data:
-       - Left axis for Change in Call OI
-       - Right axis for Change in Put OI
-       Removes range sliders/controls at the bottom.
-    """
-    # Convert stored ISO strings to datetime objects from x_data_change
+    """Generates a Plotly figure with two separate y-axes for Change in OI data,
+       using smooth spline lines for a more visually appealing chart."""
+    # Convert stored ISO strings in x_data_change to datetime objects
     x_dt = [parse_datetime(dt) for dt in symbol_data['x_data_change']]
-    
-    # Create a figure with 1 row, 1 column, but 2 separate y-axes
+
+    # Create a figure with secondary y-axis
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-    # Trace for Change in Call OI on the left axis
+    # Trace for Change in Call OI (left y-axis)
     fig.add_trace(
         go.Scatter(
             x=x_dt,
             y=symbol_data['call_oi_change_data'],
-            mode='lines+markers',
+            mode='lines',
             name='Change in Call OI',
-            line=dict(color='blue', width=2),
-            marker=dict(size=4),
+            line=dict(
+                color='blue',
+                width=3,
+                shape='spline',
+                smoothing=1.3
+            ),
             hoverinfo='text',
             text=[
                 f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Call OI: {v:,}"
                 for dt, v in zip(symbol_data['x_data_change'], symbol_data['call_oi_change_data'])
             ]
         ),
-        secondary_y=False  # left y-axis
+        secondary_y=False
     )
     
-    # Trace for Change in Put OI on the right axis
+    # Trace for Change in Put OI (right y-axis)
     fig.add_trace(
         go.Scatter(
             x=x_dt,
             y=symbol_data['put_oi_change_data'],
-            mode='lines+markers',
+            mode='lines',
             name='Change in Put OI',
-            line=dict(color='red', width=2),
-            marker=dict(size=4),
+            line=dict(
+                color='red',
+                width=3,
+                shape='spline',
+                smoothing=1.3
+            ),
             hoverinfo='text',
             text=[
                 f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Put OI: {v:,}"
                 for dt, v in zip(symbol_data['x_data_change'], symbol_data['put_oi_change_data'])
             ]
         ),
-        secondary_y=True  # right y-axis
+        secondary_y=True
     )
     
-    # Update layout: remove range slider/selector and set styling
+    # Update layout to remove range slider/selector and set styling
     fig.update_layout(
         title=f"Real-time Change in Open Interest (OI) Data for {symbol}",
         template='plotly_white',
@@ -260,18 +279,26 @@ def generate_change_figure(symbol_data, symbol):
 app = dash.Dash(__name__)
 app.title = "Real-time OI Data"
 
-# Layout: includes symbol input, submit button, two graphs, interval, and a hidden store.
+# Layout: includes symbol input, strike count dropdown, submit button, two graphs, interval, and a hidden store.
 app.layout = html.Div([
     html.H1("Real-time Open Interest (OI) Data", style={'textAlign': 'center'}),
     html.Div([
-        html.Label("Enter Symbol:"),
+        html.Label("Enter Symbol:", style={'fontSize': '16px', 'fontWeight': 'bold', 'marginRight': '10px'}),
         dcc.Input(
             id='symbol-input',
             type='text',
             value=DEFAULT_SYMBOL,
-            style={'marginRight': '10px'}
+            style={'marginRight': '20px', 'padding': '5px', 'fontSize': '14px'}
         ),
-        html.Button("Submit", id="submit-symbol", n_clicks=0)
+        html.Label("Strike Count:", style={'fontSize': '16px', 'fontWeight': 'bold', 'marginRight': '10px'}),
+        dcc.Dropdown(
+            id='strikecount-dropdown',
+            options=[{'label': str(x), 'value': x} for x in [1, 5, 8, 10, 15, 20, 25, 30, 35]],
+            value=10,
+            clearable=False,
+            style={'width': '150px', 'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '14px', 'marginRight': '20px'}
+        ),
+        html.Button("Submit", id="submit-symbol", n_clicks=0, style={'padding': '5px 15px', 'fontSize': '16px'})
     ], style={'textAlign': 'center', 'marginBottom': '20px'}),
     dcc.Graph(id='oi-graph', animate=False),
     dcc.Graph(id='change-graph', animate=False),
@@ -289,9 +316,10 @@ app.layout = html.Div([
     [Input('interval-component', 'n_intervals'),
      Input('submit-symbol', 'n_clicks')],
     [State('data-store', 'data'),
-     State('symbol-input', 'value')]
+     State('symbol-input', 'value'),
+     State('strikecount-dropdown', 'value')]
 )
-def update_data_store(n_intervals, n_clicks, data, symbol):
+def update_data_store(n_intervals, n_clicks, data, symbol, strikecount):
     ctx = callback_context
     if not ctx.triggered:
         trigger_id = None
@@ -302,7 +330,7 @@ def update_data_store(n_intervals, n_clicks, data, symbol):
         data = reset_symbol_data(data, symbol)
 
     current_symbol = data.get('current_symbol', DEFAULT_SYMBOL)
-    data = fetch_and_append_data(data, current_symbol)
+    data = fetch_and_append_data(data, current_symbol, strikecount)
     return data
 
 # Callback to update the OI graph.
