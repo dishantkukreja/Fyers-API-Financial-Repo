@@ -10,7 +10,8 @@ from data_fetcher import FyersAPI
 
 # Fyers API configuration
 client_id = "K731S35ZOK"
-access_token = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbjgxdEU1SHlYTmlBNHJIZkJPWUNXQ1VTQng3allmQ284ck53V0JKdk8zc1VKbG9FOW1WaDlnZC1Ra0pkWk1NNF9IdExYVDVZR2tGOVoxVWphQ0pyZ2I0azZUUkpZaTBkQ2RXb0Y2NGZ5Vl9jUG1YVT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0MDcyMjAwLCJpYXQiOjE3NDQwMDE4NjAsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDAwMTg2MCwic3ViIjoiYWNjZXNzX3Rva2VuIn0.SdFo2ptZKkOEWaMIeqC0BMRW3D_1kpLSlEqJtTpZEjo")
+access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbjlNb0szZ1U1d2ctaUZXWEFrVHdEeml4MklWMHlHRjA1aUE2elFVWHpVcFRCRzAtdm5XQVNReVFhMXYxVEV4QjZ1R2lLeVZoZDYwV3ItWTIyRFo5MGQ1UUNScGliT1pvcDcySF9rb05zcGJ2R3dNND0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0MTU4NjAwLCJpYXQiOjE3NDQwOTU3NTQsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDA5NTc1NCwic3ViIjoiYWNjZXNzX3Rva2VuIn0.9JoDxc2850ejEgleWjaqmge_PKbotHksLeybEiUOdV0"
+
 fyers_api = FyersAPI(client_id, access_token)
 
 DEFAULT_SYMBOL = "NSE:NIFTYBANK-INDEX"
@@ -21,11 +22,9 @@ def create_initial_data():
         'current_symbol': DEFAULT_SYMBOL,
         'symbols_data': {
             DEFAULT_SYMBOL: {
-                # OI Data
                 'x_data': [],
                 'call_oi_data': [],
                 'put_oi_data': [],
-                # Change Data
                 'x_data_change': [],
                 'call_oi_change_data': [],
                 'put_oi_change_data': []
@@ -35,9 +34,8 @@ def create_initial_data():
 
 def reset_symbol_data(data, symbol):
     """
-    Updates the data store when a new symbol is submitted.
-    If the symbol exists, preserves its historical data;
-    otherwise, initializes empty records for both OI and change data.
+    Resets the data store for the given symbol.
+    If the symbol exists, preserves its historical data; otherwise, initializes empty records.
     """
     if symbol not in data['symbols_data']:
         data['symbols_data'][symbol] = {
@@ -51,9 +49,9 @@ def reset_symbol_data(data, symbol):
     data['current_symbol'] = symbol
     return data
 
-def fetch_and_append_data(data, symbol, strikecount):
+def fetch_and_append_data(data, symbol, strikecount, expiry):
     """
-    Fetches the latest data for the given symbol from the API using the provided strikecount,
+    Fetches the latest data for the given symbol using the provided strikecount and expiry,
     then appends both OI data and change in OI data to the respective lists.
     """
     symbol_data = data['symbols_data'].get(symbol, {
@@ -64,22 +62,20 @@ def fetch_and_append_data(data, symbol, strikecount):
         'call_oi_change_data': [],
         'put_oi_change_data': []
     })
-    # Pass strikecount to the API call
-    api_response = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount)
+    # Pass strikecount and expiry to the API call
+    api_response = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount, expiry=expiry)
     if api_response:
-        # Update OI data
         callOi = api_response.get('callOi', 0)
         putOi = api_response.get('putOi', 0)
         print(f"call {callOi}")
         print(f"put {putOi}")
-        # Store the current datetime as an ISO formatted string
         now_dt = datetime.now()
         now_iso = now_dt.isoformat()
         symbol_data['x_data'].append(now_iso)
         symbol_data['call_oi_data'].append(callOi)
         symbol_data['put_oi_data'].append(putOi)
 
-        # Calculate change in OI using optionsChain data
+        # Calculate change in OI from optionsChain data
         call_oi_change = 0
         put_oi_change = 0
         for option in api_response.get('optionsChain', []):
@@ -91,195 +87,158 @@ def fetch_and_append_data(data, symbol, strikecount):
                 put_oi_change += oi_change
         symbol_data['x_data_change'].append(now_iso)
         symbol_data['call_oi_change_data'].append(call_oi_change)
-        symbol_data['put_oi_change_data'].append(put_oi_change)  # Example: you can adjust this if needed.
+        symbol_data['put_oi_change_data'].append(put_oi_change)
     data['symbols_data'][symbol] = symbol_data
     return data
 
-# def putOi_change_value(putOi):
-#     """
-#     Placeholder for Put OI change calculation.
-#     Currently returns 0; adjust this function if you have a specific calculation.
-#     """
-#     return 0
 
 def parse_datetime(dt):
-    """
-    Converts a stored datetime string back into a datetime object.
-    If dt is already a datetime object, return it.
-    """
+    """Converts an ISO datetime string back into a datetime object."""
     if isinstance(dt, str):
         try:
             return datetime.fromisoformat(dt)
         except Exception as e:
-            # Fallback: adjust this format if needed.
             return datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
     return dt
 
+def filter_data_by_date(x_list, y_list, selected_date):
+    """
+    Filters the x_list (ISO strings) and corresponding y_list so that only data points
+    matching the selected_date (YYYY-MM-DD) remain.
+    Returns (filtered_x_dt, filtered_y_list).
+    """
+    filtered_x = []
+    filtered_y = []
+    for x, y in zip(x_list, y_list):
+        dt_obj = parse_datetime(x)
+        if dt_obj.date().isoformat() == selected_date:
+            filtered_x.append(dt_obj)
+            filtered_y.append(y)
+    return filtered_x, filtered_y
 
-def generate_oi_figure(symbol_data, symbol):
-    """Generates a Plotly figure with two separate y-axes for OI data, 
-       using smooth spline lines for a more visually appealing chart."""
-    # Convert stored ISO strings to datetime objects
-    x_dt = [parse_datetime(dt) for dt in symbol_data['x_data']]
 
-    # Create a figure with 1 row, 1 column, but 2 separate y-axes
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
 
-    # Trace for Call OI (left axis)
-    fig.add_trace(
-        go.Scatter(
-            x=x_dt,
-            y=symbol_data['call_oi_data'],
-            mode='lines',  # no markers
-            name='Call OI',
-            line=dict(
-                color='blue',
-                width=3,
-                shape='spline',      # Use spline for smooth curves
-                smoothing=1.3        # Adjust smoothing factor (0–1.3 typically)
-            ),
-            hoverinfo='text',
-            text=[
-                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Call OI: {v:,}"
-                for dt, v in zip(symbol_data['x_data'], symbol_data['call_oi_data'])
-            ]
-        ),
-        secondary_y=False  # left y-axis
-    )
+def generate_oi_figure(symbol_data, symbol, window: int = None):
+    """
+    Plots raw Call and Put OI on a single y-axis.
+    By default it autoranges the y-axis to the data you pass in.
+    If `window` is set, only the last `window` points are plotted.
+    """
+    # parse and slice
+    x_all  = [parse_datetime(dt) for dt in symbol_data['x_data']]
+    call_all = symbol_data['call_oi_data']
+    put_all  = symbol_data['put_oi_data']
 
-    # Trace for Put OI (right axis)
-    fig.add_trace(
-        go.Scatter(
-            x=x_dt,
-            y=symbol_data['put_oi_data'],
-            mode='lines',
-            name='Put OI',
-            line=dict(
-                color='red',
-                width=3,
-                shape='spline',
-                smoothing=1.3
-            ),
-            hoverinfo='text',
-            text=[
-                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Put OI: {v:,}"
-                for dt, v in zip(symbol_data['x_data'], symbol_data['put_oi_data'])
-            ]
-        ),
-        secondary_y=True  # right y-axis
-    )
+    if window:
+        x = x_all[-window:]
+        call = call_all[-window:]
+        put  = put_all[-window:]
+    else:
+        x = x_all
+        call = call_all
+        put  = put_all
 
-    # Basic layout: remove range slider & range selector, set styling
+    # nudge any zeros up so log or linear autorange works cleanly
+    call = [v if v != 0 else 0 for v in call]
+    put  = [v if v != 0 else 0 for v in put]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=x, y=call,
+        mode='lines',
+        name='Call OI',
+        line=dict(color='blue', width=2),
+        hovertemplate="Time: %{x|%H:%M:%S}<br>Call OI: %{y:,}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x, y=put,
+        mode='lines',
+        name='Put OI',
+        line=dict(color='red', width=2),
+        hovertemplate="Time: %{x|%H:%M:%S}<br>Put OI: %{y:,}<extra></extra>"
+    ))
+
     fig.update_layout(
-        title=f"Real-time Open Interest (OI) Data for {symbol}",
+        title=f"Real‑time Open Interest (OI) for {symbol}",
         template='plotly_white',
         hovermode="x unified",
         xaxis=dict(
-            showgrid=True,
-            gridcolor='lightgrey',
+            showgrid=True, gridcolor='lightgrey',
             rangeslider=dict(visible=False),
             rangeselector=dict(visible=False)
         ),
         yaxis=dict(
-            title="Call OI",
-            showgrid=True,
-            gridcolor='lightgrey'
-        ),
-        yaxis2=dict(
-            title="Put OI",
-            showgrid=False,
-            overlaying='y',
-            side='right'
+            title="Open Interest",
+            showgrid=True, gridcolor='lightgrey',
+            autorange=True     # <— this lets the axis rescale on every redraw
         )
     )
-
     return fig
 
 
-def generate_change_figure(symbol_data, symbol):
-    """Generates a Plotly figure with two separate y-axes for Change in OI data,
-       using smooth spline lines for a more visually appealing chart."""
-    # Convert stored ISO strings in x_data_change to datetime objects
-    x_dt = [parse_datetime(dt) for dt in symbol_data['x_data_change']]
+def generate_change_figure(symbol_data, symbol, window: int = None):
+    """
+    Plots raw Δ Call and Δ Put OI on a single y-axis, autoranged.
+    Pass `window` to only draw the last N points.
+    """
+    x_all      = [parse_datetime(dt) for dt in symbol_data['x_data_change']]
+    call_all   = symbol_data['call_oi_change_data']
+    put_all    = symbol_data['put_oi_change_data']
 
-    # Create a figure with secondary y-axis
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # Trace for Change in Call OI (left y-axis)
-    fig.add_trace(
-        go.Scatter(
-            x=x_dt,
-            y=symbol_data['call_oi_change_data'],
-            mode='lines',
-            name='Change in Call OI',
-            line=dict(
-                color='blue',
-                width=3,
-                shape='spline',
-                smoothing=1.3
-            ),
-            hoverinfo='text',
-            text=[
-                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Call OI: {v:,}"
-                for dt, v in zip(symbol_data['x_data_change'], symbol_data['call_oi_change_data'])
-            ]
-        ),
-        secondary_y=False
-    )
-    
-    # Trace for Change in Put OI (right y-axis)
-    fig.add_trace(
-        go.Scatter(
-            x=x_dt,
-            y=symbol_data['put_oi_change_data'],
-            mode='lines',
-            name='Change in Put OI',
-            line=dict(
-                color='red',
-                width=3,
-                shape='spline',
-                smoothing=1.3
-            ),
-            hoverinfo='text',
-            text=[
-                f"Time: {parse_datetime(dt).strftime('%H:%M:%S')}<br>Change in Put OI: {v:,}"
-                for dt, v in zip(symbol_data['x_data_change'], symbol_data['put_oi_change_data'])
-            ]
-        ),
-        secondary_y=True
-    )
-    
-    # Update layout to remove range slider/selector and set styling
+    if window:
+        x = x_all[-window:]
+        call = call_all[-window:]
+        put  = put_all[-window:]
+    else:
+        x = x_all
+        call = call_all
+        put  = put_all
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=x, y=call,
+        mode='lines',
+        name='Δ Call OI',
+        line=dict(color='blue', width=2),
+        hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Call OI: %{y:,}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x, y=put,
+        mode='lines',
+        name='Δ Put OI',
+        line=dict(color='red', width=2),
+        hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Put OI: %{y:,}<extra></extra>"
+    ))
+
     fig.update_layout(
-        title=f"Real-time Change in Open Interest (OI) Data for {symbol}",
+        title=f"Real‑time Δ Open Interest (OI) for {symbol}",
         template='plotly_white',
         hovermode="x unified",
         xaxis=dict(
-            showgrid=True,
-            gridcolor='lightgrey',
+            showgrid=True, gridcolor='lightgrey',
             rangeslider=dict(visible=False),
             rangeselector=dict(visible=False)
         ),
         yaxis=dict(
-            title="Change in Call OI",
-            showgrid=True,
-            gridcolor='lightgrey'
-        ),
-        yaxis2=dict(
-            title="Change in Put OI",
-            showgrid=False,
-            overlaying='y',
-            side='right'
+            title="Change in OI",
+            showgrid=True, gridcolor='lightgrey',
+            autorange=True
         )
     )
-    
     return fig
 
-# Create the Dash app
+
+
+# Create the Dash app layout
 app = dash.Dash(__name__)
 app.title = "Real-time OI Data"
 
-# Layout: includes symbol input, strike count dropdown, submit button, two graphs, interval, and a hidden store.
 app.layout = html.Div([
     html.H1("Real-time Open Interest (OI) Data", style={'textAlign': 'center'}),
     html.Div([
@@ -298,6 +257,21 @@ app.layout = html.Div([
             clearable=False,
             style={'width': '150px', 'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '14px', 'marginRight': '20px'}
         ),
+        html.Label("Expiry:", style={'fontSize': '16px', 'fontWeight': 'bold', 'marginRight': '10px'}),
+        dcc.Dropdown(
+            id='expiry-dropdown',
+            options=[],  # Options will be updated dynamically
+            value=None,
+            clearable=False,
+            style={'width': '200px', 'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '14px', 'marginRight': '20px'}
+        ),
+        html.Label("Select Date:", style={'fontSize': '16px', 'fontWeight': 'bold', 'marginRight': '10px'}),
+        dcc.DatePickerSingle(
+            id='date-picker',
+            date=datetime.now().date(),
+            display_format='YYYY-MM-DD',
+            style={'display': 'inline-block', 'verticalAlign': 'middle', 'marginRight': '20px'}
+        ),
         html.Button("Submit", id="submit-symbol", n_clicks=0, style={'padding': '5px 15px', 'fontSize': '16px'})
     ], style={'textAlign': 'center', 'marginBottom': '20px'}),
     dcc.Graph(id='oi-graph', animate=False),
@@ -310,56 +284,95 @@ app.layout = html.Div([
     dcc.Store(id='data-store', data=create_initial_data())
 ])
 
-# Combined callback to update the data-store for both OI and change data.
+# Callback to update the expiry dropdown options based on the symbol and strike count.
+@app.callback(
+    Output('expiry-dropdown', 'options'),
+    Output('expiry-dropdown', 'value'),
+    [Input('submit-symbol', 'n_clicks')],
+    [State('symbol-input', 'value'),
+     State('strikecount-dropdown', 'value')]
+)
+def update_expiry_options(n_clicks, symbol, strikecount):
+    # Call the API once to get the expiryData.
+    response = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount)
+    if response and 'expiryData' in response:
+        options = [{'label': exp['date'], 'value': exp['expiry']} for exp in response['expiryData']]
+        # Default to the first expiry value.
+        default_value = options[0]['value'] if options else None
+        return options, default_value
+    return [], None
+
+# Combined callback to update the data-store.
 @app.callback(
     Output('data-store', 'data'),
     [Input('interval-component', 'n_intervals'),
      Input('submit-symbol', 'n_clicks')],
     [State('data-store', 'data'),
      State('symbol-input', 'value'),
-     State('strikecount-dropdown', 'value')]
+     State('strikecount-dropdown', 'value'),
+     State('expiry-dropdown', 'value')]
 )
-def update_data_store(n_intervals, n_clicks, data, symbol, strikecount):
+def update_data_store(n_intervals, n_clicks, data, symbol, strikecount, expiry):
     ctx = callback_context
     if not ctx.triggered:
         trigger_id = None
     else:
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
     if trigger_id == 'submit-symbol':
         data = reset_symbol_data(data, symbol)
-
     current_symbol = data.get('current_symbol', DEFAULT_SYMBOL)
-    data = fetch_and_append_data(data, current_symbol, strikecount)
+    data = fetch_and_append_data(data, current_symbol, strikecount, expiry)
     return data
 
 # Callback to update the OI graph.
 @app.callback(
     Output('oi-graph', 'figure'),
-    Input('data-store', 'data')
+    [Input('data-store', 'data'),
+     Input('date-picker', 'date')]
 )
-def update_oi_graph(data):
+def update_oi_graph(data, selected_date):
     current_symbol = data.get('current_symbol', DEFAULT_SYMBOL)
     symbol_data = data['symbols_data'].get(current_symbol, {
         'x_data': [],
         'call_oi_data': [],
         'put_oi_data': []
     })
-    return generate_oi_figure(symbol_data, current_symbol)
+    if selected_date:
+        x_filtered, call_filtered = filter_data_by_date(symbol_data['x_data'], symbol_data['call_oi_data'], selected_date)
+        _, put_filtered = filter_data_by_date(symbol_data['x_data'], symbol_data['put_oi_data'], selected_date)
+        filtered_symbol_data = {
+            'x_data': [dt.isoformat() for dt in x_filtered],
+            'call_oi_data': call_filtered,
+            'put_oi_data': put_filtered
+        }
+        return generate_oi_figure(filtered_symbol_data, current_symbol)
+    else:
+        return generate_oi_figure(symbol_data, current_symbol)
 
-# Callback to update the change in OI graph.
+# Callback to update the Change in OI graph.
 @app.callback(
     Output('change-graph', 'figure'),
-    Input('data-store', 'data')
+    [Input('data-store', 'data'),
+     Input('date-picker', 'date')]
 )
-def update_change_graph(data):
+def update_change_graph(data, selected_date):
     current_symbol = data.get('current_symbol', DEFAULT_SYMBOL)
     symbol_data = data['symbols_data'].get(current_symbol, {
         'x_data_change': [],
         'call_oi_change_data': [],
         'put_oi_change_data': []
     })
-    return generate_change_figure(symbol_data, current_symbol)
+    if selected_date:
+        x_filtered, call_filtered = filter_data_by_date(symbol_data['x_data_change'], symbol_data['call_oi_change_data'], selected_date)
+        _, put_filtered = filter_data_by_date(symbol_data['x_data_change'], symbol_data['put_oi_change_data'], selected_date)
+        filtered_symbol_data = {
+            'x_data_change': [dt.isoformat() for dt in x_filtered],
+            'call_oi_change_data': call_filtered,
+            'put_oi_change_data': put_filtered
+        }
+        return generate_change_figure(filtered_symbol_data, current_symbol)
+    else:
+        return generate_change_figure(symbol_data, current_symbol)
 
 if __name__ == '__main__':
     app.run(debug=True)
