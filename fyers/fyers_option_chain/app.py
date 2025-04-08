@@ -5,6 +5,18 @@ import dash as _dash  # for no_update
 import plotly.graph_objects as go
 from datetime import datetime
 from data_fetcher import FyersAPI
+import pandas as pd
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Load stock master CSV
+# ──────────────────────────────────────────────────────────────────────────────
+# Expect a file 'stocks.csv' with columns: stock_name, fyers_symbol
+df_stocks = pd.read_csv(r'Fyers-API-Financial-Repo\fyers\fyers_option_chain\NSE_CM.csv')
+stock_options = [
+    {'label': row.Stock_name, 'value': row.fyers_symbol}
+    for _, row in df_stocks.iterrows()
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fyers API setup
@@ -16,7 +28,7 @@ fyers_api    = FyersAPI(client_id, access_token)
 DEFAULT_SYMBOL = "NSE:NIFTYBANK-INDEX"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Data store helpers
+# Data‑store helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def create_initial_data():
     return {
@@ -30,10 +42,7 @@ def create_initial_data():
     }
 
 def reset_symbol_data(data, symbol):
-    data['symbols_data'][symbol] = {
-        'x_data': [],
-        'chain_history': []
-    }
+    data['symbols_data'][symbol] = {'x_data': [], 'chain_history': []}
     data['current_symbol'] = symbol
     return data
 
@@ -77,7 +86,7 @@ def fetch_and_append_data(data, symbol, strikecount, expiry):
     return data
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Plot generators (unchanged)
+# Plot generators
 # ──────────────────────────────────────────────────────────────────────────────
 def generate_oi_figure(plot_data, symbol, window: int = None):
     x_all    = [parse_datetime(dt) for dt in plot_data['x_data']]
@@ -85,27 +94,25 @@ def generate_oi_figure(plot_data, symbol, window: int = None):
     put_all  = plot_data['put_oi_data']
 
     if window:
-        x    = x_all[-window:]
-        call = call_all[-window:]
-        put  = put_all[-window:]
+        x, call, put = x_all[-window:], call_all[-window:], put_all[-window:]
     else:
         x, call, put = x_all, call_all, put_all
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=call, mode='lines', name='Call OI',
-        line=dict(color='blue', width=2),
-        hovertemplate="Time: %{x|%H:%M:%S}<br>Call OI: %{y:,}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=x, y=put, mode='lines', name='Put OI',
-        line=dict(color='red', width=2),
-        hovertemplate="Time: %{x|%H:%M:%S}<br>Put OI: %{y:,}<extra></extra>"
-    ))
+    fig = go.Figure([
+        go.Scatter(
+            x=x, y=call, mode='lines', name='Call OI',
+            line=dict(color='blue', width=2),
+            hovertemplate="Time: %{x|%H:%M:%S}<br>Call OI: %{y:,}<extra></extra>"
+        ),
+        go.Scatter(
+            x=x, y=put, mode='lines', name='Put OI',
+            line=dict(color='red', width=2),
+            hovertemplate="Time: %{x|%H:%M:%S}<br>Put OI: %{y:,}<extra></extra>"
+        )
+    ])
     fig.update_layout(
         title=f"Real‑time Open Interest (OI) for {symbol}",
-        template='plotly_white',
-        hovermode="x unified",
+        template='plotly_white', hovermode="x unified",
         xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible':False}),
         yaxis=dict(title="Open Interest", showgrid=True, gridcolor='lightgrey', autorange=True)
     )
@@ -117,27 +124,25 @@ def generate_change_figure(plot_data, symbol, window: int = None):
     put_all    = plot_data['put_oi_change_data']
 
     if window:
-        x    = x_all[-window:]
-        call = call_all[-window:]
-        put  = put_all[-window:]
+        x, call, put = x_all[-window:], call_all[-window:], put_all[-window:]
     else:
         x, call, put = x_all, call_all, put_all
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=call, mode='lines', name='Δ Call OI',
-        line=dict(color='blue', width=2),
-        hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Call OI: %{y:,}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=x, y=put, mode='lines', name='Δ Put OI',
-        line=dict(color='red', width=2),
-        hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Put OI: %{y:,}<extra></extra>"
-    ))
+    fig = go.Figure([
+        go.Scatter(
+            x=x, y=call, mode='lines', name='Δ Call OI',
+            line=dict(color='blue', width=2),
+            hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Call OI: %{y:,}<extra></extra>"
+        ),
+        go.Scatter(
+            x=x, y=put, mode='lines', name='Δ Put OI',
+            line=dict(color='red', width=2),
+            hovertemplate="Time: %{x|%H:%M:%S}<br>Δ Put OI: %{y:,}<extra></extra>"
+        )
+    ])
     fig.update_layout(
         title=f"Real‑time Δ Open Interest (OI) for {symbol}",
-        template='plotly_white',
-        hovermode="x unified",
+        template='plotly_white', hovermode="x unified",
         xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible':False}),
         yaxis=dict(title="Change in OI", showgrid=True, gridcolor='lightgrey', autorange=True)
     )
@@ -150,14 +155,22 @@ app = dash.Dash(__name__)
 app.title = "Real-time OI Data"
 
 app.layout = html.Div([
-    html.H1("Real‑time Open Interest (OI) Data", style={'textAlign':'center','marginBottom':'30px'}),
+    html.H1("Real‑time Open Interest (OI) Data",
+            style={'textAlign':'center','marginBottom':'30px'}),
 
-    # Row 1: Symbol | Strike Count | Expiry
+    # Row 1: Stock selector, Strike Count, Expiry
     html.Div([
         html.Div([
-            html.Label("Enter Symbol", style={'fontWeight':'bold'}),
-            dcc.Input(id='symbol-input', type='text', value=DEFAULT_SYMBOL,
-                      style={'width':'200px','padding':'6px'})
+            html.Label("Stock", style={'fontWeight':'bold'}),
+            dcc.Dropdown(
+                id='stock-dropdown',
+                options=stock_options,
+                value=DEFAULT_SYMBOL,
+                clearable=False,
+                placeholder="Type to search…",
+                searchable=True,
+                style={'width':'250px'}
+            )
         ]),
         html.Div([
             html.Label("Strike Count", style={'fontWeight':'bold'}),
@@ -170,12 +183,15 @@ app.layout = html.Div([
         ]),
         html.Div([
             html.Label("Expiry", style={'fontWeight':'bold'}),
-            dcc.Dropdown(id='expiry-dropdown', options=[], value=None,
-                         clearable=False, style={'width':'150px'})
+            dcc.Dropdown(
+                id='expiry-dropdown',
+                options=[],
+                value=None,
+                clearable=False,
+                style={'width':'150px'}
+            )
         ])
-    ], style={
-        'display':'flex','justifyContent':'center','gap':'40px','marginBottom':'25px'
-    }),
+    ], style={'display':'flex','justifyContent':'center','gap':'40px','marginBottom':'25px'}),
 
     # Row 2: Strike Range Slider | Date | Submit
     html.Div([
@@ -201,9 +217,7 @@ app.layout = html.Div([
 
         html.Button("Submit", id='submit-symbol', n_clicks=0,
                     style={'padding':'8px 24px','fontSize':'16px'})
-    ], style={
-        'display':'flex','alignItems':'center','gap':'40px','marginBottom':'40px'
-    }),
+    ], style={'display':'flex','alignItems':'center','gap':'40px','marginBottom':'40px'}),
 
     dcc.Graph(id='oi-graph'),
     dcc.Graph(id='change-graph'),
@@ -216,16 +230,27 @@ app.layout = html.Div([
 # Callbacks
 # ──────────────────────────────────────────────────────────────────────────────
 
-# 1) Expiry options
+# Typeahead for stock-dropdown: filter options on prefix match
+@app.callback(
+    Output('stock-dropdown','options'),
+    Input('stock-dropdown','search_value')
+)
+def update_stock_options(search_value):
+    if not search_value:
+        return stock_options
+    sv = search_value.lower()
+    return [opt for opt in stock_options if opt['label'].lower().startswith(sv)]
+
+# 1) Populate Expiry dropdown when stock or strike count changes
 @app.callback(
     Output('expiry-dropdown','options'),
     Output('expiry-dropdown','value'),
     Input('submit-symbol','n_clicks'),
-    State('symbol-input','value'),
+    State('stock-dropdown','value'),
     State('strikecount-dropdown','value')
 )
-def update_expiry_options(nc, symbol, strikecount):
-    resp = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount)
+def update_expiry_options(nc, fyers_symbol, strikecount):
+    resp = fyers_api.fetch_option_chain_data(symbol=fyers_symbol, strikecount=strikecount)
     if resp and 'expiryData' in resp:
         opts = [{'label':e['date'],'value':e['expiry']} for e in resp['expiryData']]
         return opts, (opts[0]['value'] if opts else None)
@@ -238,15 +263,22 @@ def update_expiry_options(nc, symbol, strikecount):
     Output('strike-range-slider','marks'),
     Output('strike-range-slider','value'),
     Input('expiry-dropdown','value'),
-    State('symbol-input','value'),
+    State('stock-dropdown','value'),
     State('strikecount-dropdown','value')
 )
-def update_strike_slider(expiry, symbol, strikecount):
-    resp = fyers_api.fetch_option_chain_data(symbol=symbol, strikecount=strikecount, expiry=expiry)
+def update_strike_slider(expiry, fyers_symbol, strikecount):
+    resp = fyers_api.fetch_option_chain_data(
+        symbol=fyers_symbol, strikecount=strikecount, expiry=expiry
+    )
     if not resp or 'optionsChain' not in resp:
         return no_update, no_update, no_update, no_update
 
-    strikes = sorted({opt.get('strike_price',0) for opt in resp['optionsChain']})
+    # only keep positive strike prices
+    strikes = sorted({
+        opt.get('strike_price', 0)
+        for opt in resp['optionsChain']
+        if opt.get('strike_price', 0) > 0
+    })
     if not strikes:
         return no_update, no_update, no_update, no_update
 
@@ -259,16 +291,15 @@ def update_strike_slider(expiry, symbol, strikecount):
     Input('interval-component','n_intervals'),
     Input('submit-symbol','n_clicks'),
     State('data-store','data'),
-    State('symbol-input','value'),
+    State('stock-dropdown','value'),
     State('strikecount-dropdown','value'),
     State('expiry-dropdown','value')
 )
-def update_data_store(n_int, n_clicks, data, symbol, strikecount, expiry):
+def update_data_store(n_int, n_clicks, data, fyers_symbol, strikecount, expiry):
     ctx = callback_context
     if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('submit-symbol'):
-        data = reset_symbol_data(data, symbol)
-    current = data.get('current_symbol', DEFAULT_SYMBOL)
-    return fetch_and_append_data(data, current, strikecount, expiry)
+        data = reset_symbol_data(data, fyers_symbol)
+    return fetch_and_append_data(data, fyers_symbol, strikecount, expiry)
 
 # 4) Recompute & plot total OI
 @app.callback(
@@ -287,18 +318,23 @@ def update_oi_graph(data, sel_date, strike_range):
     for chain in sd['chain_history']:
         c = sum(opt.get('oi',0)
                 for opt in chain
-                if opt.get('option_type')=='CE' and low <= opt.get('strike_price',0) <= high)
+                if opt.get('option_type')=='CE'
+                   and low <= opt.get('strike_price',0) <= high)
         p = sum(opt.get('oi',0)
                 for opt in chain
-                if opt.get('option_type')=='PE' and low <= opt.get('strike_price',0) <= high)
+                if opt.get('option_type')=='PE'
+                   and low <= opt.get('strike_price',0) <= high)
         call_ts.append(c)
         put_ts.append(p)
 
     if sel_date:
         x_f, call_f = filter_data_by_date(x_list, call_ts, sel_date)
         _,    put_f  = filter_data_by_date(x_list, put_ts, sel_date)
-        pd = {'x_data':[dt.isoformat() for dt in x_f],
-              'call_oi_data':call_f, 'put_oi_data':put_f}
+        pd = {
+            'x_data':[dt.isoformat() for dt in x_f],
+            'call_oi_data':call_f,
+            'put_oi_data':put_f
+        }
     else:
         pd = {'x_data':x_list, 'call_oi_data':call_ts, 'put_oi_data':put_ts}
 
@@ -321,26 +357,31 @@ def update_change_graph(data, sel_date, strike_range):
     for chain in sd['chain_history']:
         cchg = sum(opt.get('oich',0)
                    for opt in chain
-                   if opt.get('option_type')=='CE' and low <= opt.get('strike_price',0) <= high)
+                   if opt.get('option_type')=='CE'
+                      and low <= opt.get('strike_price',0) <= high)
         pchg = sum(opt.get('oich',0)
                    for opt in chain
-                   if opt.get('option_type')=='PE' and low <= opt.get('strike_price',0) <= high)
+                   if opt.get('option_type')=='PE'
+                      and low <= opt.get('strike_price',0) <= high)
         call_chg_ts.append(cchg)
         put_chg_ts.append(pchg)
 
     if sel_date:
         x_f, call_f = filter_data_by_date(x_list, call_chg_ts, sel_date)
         _,    put_f  = filter_data_by_date(x_list, put_chg_ts, sel_date)
-        pd = {'x_data_change':[dt.isoformat() for dt in x_f],
-              'call_oi_change_data':call_f,
-              'put_oi_change_data':put_f}
+        pd = {
+            'x_data_change':[dt.isoformat() for dt in x_f],
+            'call_oi_change_data':call_f,
+            'put_oi_change_data':put_f
+        }
     else:
-        pd = {'x_data_change':x_list,
-              'call_oi_change_data':call_chg_ts,
-              'put_oi_change_data':put_chg_ts}
+        pd = {
+            'x_data_change':x_list,
+            'call_oi_change_data':call_chg_ts,
+            'put_oi_change_data':put_chg_ts
+        }
 
     return generate_change_figure(pd, sym)
 
-# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     app.run(debug=True)
