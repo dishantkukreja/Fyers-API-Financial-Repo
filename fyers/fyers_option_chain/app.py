@@ -1,17 +1,16 @@
 # app.py
 import dash
 from dash import dcc, html, Output, Input, State, callback_context, no_update
-import dash as _dash  # for no_update
 import plotly.graph_objects as go
 from datetime import datetime
 from data_fetcher import FyersAPI
 import pandas as pd
-
+import sqlite3
+import json
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Load stock master CSV
 # ──────────────────────────────────────────────────────────────────────────────
-# Expect a file 'stocks.csv' with columns: stock_name, fyers_symbol
 df_stocks = pd.read_csv(r'Fyers-API-Financial-Repo\fyers\fyers_option_chain\NSE_CM.csv')
 stock_options = [
     {'label': row.Stock_name, 'value': row.fyers_symbol}
@@ -22,30 +21,95 @@ stock_options = [
 # Fyers API setup
 # ──────────────────────────────────────────────────────────────────────────────
 client_id    = "K731S35ZOK"
-access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbjlRbHk5MF9JcElIQmVCMlZ4bHNRa0RUNS1wYXY0dVNVWEJiZzVSdGFVT2VwVnRmR1dxNHpyYm85MzVmNm1xcXg0SmxjT0c2a2JlYW1FNmZ2X3pxWmVlelQ3RmZIanI1eldydjhCRTRUVzRtNGVLMD0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0MTU4NjAwLCJpYXQiOjE3NDQxMTE5ODYsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDExMTk4Niwic3ViIjoiYWNjZXNzX3Rva2VuIn0.R71xOYk7wFd8MnqT42dHj1493tfxtSCz98vyLU8kY4E"
+access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbi1PUFpxUXdIVFloYlBLM191Z1dsWHFKdGFkazZuRm1Qay11SzItWnRtcW51aWpFZHVGeXYtcmVyOEwyU1RNaVdhdlFSdWtJWWFibkVLOTRmWjBoRGsxbEtUSWVrTmFWaWVxTGE5dURZa2RlQ2RkRT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0NDE3ODAwLCJpYXQiOjE3NDQzNjQ1MDUsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDM2NDUwNSwic3ViIjoiYWNjZXNzX3Rva2VuIn0.18U3uGyCYpOPmiuQr4MK1TBr-dHDyG0YuNUwwl0waG0"
 fyers_api    = FyersAPI(client_id, access_token)
 
 DEFAULT_SYMBOL = "NSE:NIFTYBANK-INDEX"
+DEFAULT_STRIKECOUNT = 10  # Used for initial fetch if needed
+
+# Record the app’s start time to use as the “backdate” for the first snapshot
+APP_START_TIME = datetime.now().isoformat()
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Data‑store helpers
+# SQLite Database Helpers
 # ──────────────────────────────────────────────────────────────────────────────
-def create_initial_data():
-    return {
-        'current_symbol': DEFAULT_SYMBOL,
-        'symbols_data': {
-            DEFAULT_SYMBOL: {
-                'x_data': [],          # timestamps
-                'chain_history': []    # list of optionsChain snapshots
-            }
-        }
-    }
+DB_FILENAME = "option_chain.db"
 
-def reset_symbol_data(data, symbol):
-    data['symbols_data'][symbol] = {'x_data': [], 'chain_history': []}
-    data['current_symbol'] = symbol
-    return data
+def init_db():
+    """Initializes the SQLite database and creates the table if necessary."""
+    conn = sqlite3.connect(DB_FILENAME)
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS option_chain_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT,
+            timestamp TEXT,
+            option_chain TEXT,
+            strikecount INTEGER,
+            expiry TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
+def reset_db():
+    """Clear any existing records so that each app run starts fresh."""
+    conn = sqlite3.connect(DB_FILENAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM option_chain_data")
+    conn.commit()
+    conn.close()
+
+def store_option_chain_data(symbol, timestamp, option_chain, strikecount, expiry):
+    """
+    Inserts a new record into the database.
+    The option_chain is stored as a JSON string.
+    """
+    conn = sqlite3.connect(DB_FILENAME)
+    cur = conn.cursor()
+    cur.execute('''
+        INSERT INTO option_chain_data (symbol, timestamp, option_chain, strikecount, expiry)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (symbol, timestamp, json.dumps(option_chain), strikecount, expiry))
+    conn.commit()
+    conn.close()
+
+def get_data_from_db(symbol):
+    """
+    Retrieves all records from the DB for the given symbol.
+    Returns a dict with keys:
+       'x_data': list of timestamps (as ISO strings)
+       'chain_history': list of option chain data (as Python objects)
+    """
+    conn = sqlite3.connect(DB_FILENAME)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('''
+        SELECT timestamp, option_chain FROM option_chain_data
+        WHERE symbol = ?
+        ORDER BY timestamp ASC
+    ''', (symbol,))
+    rows = cur.fetchall()
+    conn.close()
+
+    x_data = []
+    chain_history = []
+    for row in rows:
+        x_data.append(row["timestamp"])
+        try:
+            chain = json.loads(row["option_chain"])
+        except Exception:
+            chain = []
+        chain_history.append(chain)
+    return {'x_data': x_data, 'chain_history': chain_history}
+
+# Initialize (and clear) the database at app startup.
+init_db()
+reset_db()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data‑helper Functions (aggregation and date filtering remain unchanged)
+# ──────────────────────────────────────────────────────────────────────────────
 def parse_datetime(dt):
     if isinstance(dt, str):
         try:
@@ -63,30 +127,8 @@ def filter_data_by_date(x_list, y_list, selected_date):
             filtered_y.append(y)
     return filtered_x, filtered_y
 
-def fetch_and_append_data(data, symbol, strikecount, expiry):
-    """
-    Fetches the full optionsChain and appends it (plus timestamp)
-    to our in‑memory history.
-    """
-    symbol_data = data['symbols_data'].setdefault(symbol, {
-        'x_data': [], 'chain_history': []
-    })
-
-    resp = fyers_api.fetch_option_chain_data(
-        symbol=symbol,
-        strikecount=strikecount,
-        expiry=expiry
-    )
-    if resp and 'optionsChain' in resp:
-        now_iso = datetime.now().isoformat()
-        symbol_data['x_data'].append(now_iso)
-        symbol_data['chain_history'].append(resp['optionsChain'])
-        data['symbols_data'][symbol] = symbol_data
-
-    return data
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Plot generators
+# Plot Generators (unchanged)
 # ──────────────────────────────────────────────────────────────────────────────
 def generate_oi_figure(plot_data, symbol, window: int = None):
     x_all    = [parse_datetime(dt) for dt in plot_data['x_data']]
@@ -113,7 +155,7 @@ def generate_oi_figure(plot_data, symbol, window: int = None):
     fig.update_layout(
         title=f"Real‑time Open Interest (OI) for {symbol}",
         template='plotly_white', hovermode="x unified",
-        xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible':False}),
+        xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible': False}),
         yaxis=dict(title="Open Interest", showgrid=True, gridcolor='lightgrey', autorange=True)
     )
     return fig
@@ -143,7 +185,7 @@ def generate_change_figure(plot_data, symbol, window: int = None):
     fig.update_layout(
         title=f"Real‑time Δ Open Interest (OI) for {symbol}",
         template='plotly_white', hovermode="x unified",
-        xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible':False}),
+        xaxis=dict(showgrid=True, gridcolor='lightgrey', rangeslider={'visible': False}),
         yaxis=dict(title="Change in OI", showgrid=True, gridcolor='lightgrey', autorange=True)
     )
     return fig
@@ -156,12 +198,12 @@ app.title = "Real-time OI Data"
 
 app.layout = html.Div([
     html.H1("Real‑time Open Interest (OI) Data",
-            style={'textAlign':'center','marginBottom':'30px'}),
-
+            style={'textAlign': 'center', 'marginBottom': '30px'}),
+    
     # Row 1: Stock selector, Strike Count, Expiry
     html.Div([
         html.Div([
-            html.Label("Stock", style={'fontWeight':'bold'}),
+            html.Label("Stock", style={'fontWeight': 'bold'}),
             dcc.Dropdown(
                 id='stock-dropdown',
                 options=stock_options,
@@ -169,61 +211,64 @@ app.layout = html.Div([
                 clearable=False,
                 placeholder="Type to search…",
                 searchable=True,
-                style={'width':'250px'}
+                style={'width': '250px'}
             )
         ]),
         html.Div([
-            html.Label("Strike Count", style={'fontWeight':'bold'}),
+            html.Label("Strike Count", style={'fontWeight': 'bold'}),
             dcc.Dropdown(
                 id='strikecount-dropdown',
-                options=[{'label':str(x),'value':x} for x in [1,5,8,10,15,20,25,30,35]],
-                value=10, clearable=False,
-                style={'width':'120px'}
+                options=[{'label': str(x), 'value': x} for x in [1, 5, 8, 10, 15, 20, 25, 30, 35]],
+                value=DEFAULT_STRIKECOUNT,
+                clearable=False,
+                style={'width': '120px'}
             )
         ]),
         html.Div([
-            html.Label("Expiry", style={'fontWeight':'bold'}),
+            html.Label("Expiry", style={'fontWeight': 'bold'}),
             dcc.Dropdown(
                 id='expiry-dropdown',
                 options=[],
                 value=None,
                 clearable=False,
-                style={'width':'150px'}
+                style={'width': '150px'}
             )
         ])
-    ], style={'display':'flex','justifyContent':'center','gap':'40px','marginBottom':'25px'}),
+    ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '40px', 'marginBottom': '25px'}),
 
     # Row 2: Strike Range Slider | Date | Submit
     html.Div([
         html.Div([
-            html.Label("Strike Range", style={'fontWeight':'bold','marginBottom':'10px'}),
+            html.Label("Strike Range", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
             dcc.RangeSlider(
                 id='strike-range-slider',
-                min=0, max=0, step=1, marks={}, value=[0,0],
-                tooltip={'placement':'bottom','always_visible':True},
+                min=0, max=0, step=1, marks={}, value=[0, 0],
+                tooltip={'placement': 'bottom', 'always_visible': True},
                 allowCross=False, pushable=1, updatemode='mouseup'
             )
-        ], style={'flex':'1 1 400px'}),
+        ], style={'flex': '1 1 400px'}),
 
         html.Div([
-            html.Label("Select Date", style={'fontWeight':'bold'}),
+            html.Label("Select Date", style={'fontWeight': 'bold'}),
             dcc.DatePickerSingle(
                 id='date-picker',
                 date=datetime.now().date(),
                 display_format='YYYY-MM-DD',
-                style={'padding':'6px'}
+                style={'padding': '6px'}
             )
         ]),
 
         html.Button("Submit", id='submit-symbol', n_clicks=0,
-                    style={'padding':'8px 24px','fontSize':'16px'})
-    ], style={'display':'flex','alignItems':'center','gap':'40px','marginBottom':'40px'}),
+                    style={'padding': '8px 24px', 'fontSize': '16px'})
+    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '40px', 'marginBottom': '40px'}),
 
     dcc.Graph(id='oi-graph'),
     dcc.Graph(id='change-graph'),
 
     dcc.Interval(id='interval-component', interval=3*1000, n_intervals=0),
-    dcc.Store(id='data-store', data=create_initial_data())
+
+    # Hidden div to trigger data fetch and store (no longer using dcc.Store)
+    html.Div(id='dummy-div', style={'display': 'none'})
 ])
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -232,8 +277,8 @@ app.layout = html.Div([
 
 # Typeahead for stock-dropdown: filter options on prefix match
 @app.callback(
-    Output('stock-dropdown','options'),
-    Input('stock-dropdown','search_value')
+    Output('stock-dropdown', 'options'),
+    Input('stock-dropdown', 'search_value')
 )
 def update_stock_options(search_value):
     if not search_value:
@@ -243,28 +288,28 @@ def update_stock_options(search_value):
 
 # 1) Populate Expiry dropdown when stock or strike count changes
 @app.callback(
-    Output('expiry-dropdown','options'),
-    Output('expiry-dropdown','value'),
-    Input('submit-symbol','n_clicks'),
-    State('stock-dropdown','value'),
-    State('strikecount-dropdown','value')
+    Output('expiry-dropdown', 'options'),
+    Output('expiry-dropdown', 'value'),
+    Input('submit-symbol', 'n_clicks'),
+    State('stock-dropdown', 'value'),
+    State('strikecount-dropdown', 'value')
 )
 def update_expiry_options(nc, fyers_symbol, strikecount):
     resp = fyers_api.fetch_option_chain_data(symbol=fyers_symbol, strikecount=strikecount)
     if resp and 'expiryData' in resp:
-        opts = [{'label':e['date'],'value':e['expiry']} for e in resp['expiryData']]
+        opts = [{'label': e['date'], 'value': e['expiry']} for e in resp['expiryData']]
         return opts, (opts[0]['value'] if opts else None)
     return [], None
 
 # 2) Populate RangeSlider when expiry changes
 @app.callback(
-    Output('strike-range-slider','min'),
-    Output('strike-range-slider','max'),
-    Output('strike-range-slider','marks'),
-    Output('strike-range-slider','value'),
-    Input('expiry-dropdown','value'),
-    State('stock-dropdown','value'),
-    State('strikecount-dropdown','value')
+    Output('strike-range-slider', 'min'),
+    Output('strike-range-slider', 'max'),
+    Output('strike-range-slider', 'marks'),
+    Output('strike-range-slider', 'value'),
+    Input('expiry-dropdown', 'value'),
+    State('stock-dropdown', 'value'),
+    State('strikecount-dropdown', 'value')
 )
 def update_strike_slider(expiry, fyers_symbol, strikecount):
     resp = fyers_api.fetch_option_chain_data(
@@ -285,103 +330,165 @@ def update_strike_slider(expiry, fyers_symbol, strikecount):
     marks = {s: str(s) for s in strikes}
     return strikes[0], strikes[-1], marks, [strikes[0], strikes[-1]]
 
-# 3) Fetch & store raw chain_history
-@app.callback(
-    Output('data-store','data'),
-    Input('interval-component','n_intervals'),
-    Input('submit-symbol','n_clicks'),
-    State('data-store','data'),
-    State('stock-dropdown','value'),
-    State('strikecount-dropdown','value'),
-    State('expiry-dropdown','value')
-)
-def update_data_store(n_int, n_clicks, data, fyers_symbol, strikecount, expiry):
-    ctx = callback_context
-    if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('submit-symbol'):
-        data = reset_symbol_data(data, fyers_symbol)
-    return fetch_and_append_data(data, fyers_symbol, strikecount, expiry)
+# 3) Fetch data from the API and store it persistently in the local DB.
+#    This callback triggers on the interval and the submit button.
+#  Global variables to keep track of activated symbols and round-robin index.
+# Global variables: activated symbols, round-robin counter, and configuration store.
+activated_symbols = []
+update_index = 0
+symbol_config = {}  # New dictionary to keep each symbol's configuration
 
-# 4) Recompute & plot total OI
 @app.callback(
-    Output('oi-graph','figure'),
-    Input('data-store','data'),
-    Input('date-picker','date'),
-    Input('strike-range-slider','value')
+    Output('dummy-div', 'children'),
+    Input('interval-component', 'n_intervals'),
+    Input('submit-symbol', 'n_clicks'),
+    State('stock-dropdown', 'value'),
+    State('strikecount-dropdown', 'value'),
+    State('expiry-dropdown', 'value')
 )
-def update_oi_graph(data, sel_date, strike_range):
+def fetch_and_store(n_int, n_clicks, active_symbol, strikecount, expiry):
+    global activated_symbols, update_index, symbol_config
+    ctx = callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    # Update the configuration for the currently active symbol.
+    symbol_config[active_symbol] = (strikecount, expiry)
+
+    # Retrieve any previously stored data for the active symbol.
+    db_data = get_data_from_db(active_symbol)
+    
+    # --- Handle "Submit" trigger for new/updated active symbol ---
+    if trigger_id == 'submit-symbol':
+        if active_symbol not in activated_symbols:
+            activated_symbols.append(active_symbol)
+        if not db_data['x_data']:
+            # For a new symbol, immediately fetch and backdate the first snapshot.
+            resp = fyers_api.fetch_option_chain_data(
+                symbol=active_symbol,
+                strikecount=strikecount,
+                expiry=expiry
+            )
+            if resp and 'optionsChain' in resp:
+                store_option_chain_data(active_symbol, APP_START_TIME, resp['optionsChain'], strikecount, expiry)
+        else:
+            # If the configuration changed while active, fetch an immediate update.
+            resp = fyers_api.fetch_option_chain_data(
+                symbol=active_symbol,
+                strikecount=strikecount,
+                expiry=expiry
+            )
+            if resp and 'optionsChain' in resp:
+                now_iso = datetime.now().isoformat()
+                store_option_chain_data(active_symbol, now_iso, resp['optionsChain'], strikecount, expiry)
+    
+    # --- Always update data for the currently active symbol ---
+    resp = fyers_api.fetch_option_chain_data(
+        symbol=active_symbol,
+        strikecount=strikecount,
+        expiry=expiry
+    )
+    if resp and 'optionsChain' in resp:
+        now_iso = datetime.now().isoformat()
+        store_option_chain_data(active_symbol, now_iso, resp['optionsChain'], strikecount, expiry)
+    
+    # --- Round-Robin update for inactive (activated) symbols ---
+    other_symbols = [s for s in activated_symbols if s != active_symbol]
+    if other_symbols:
+        symbol_to_update = other_symbols[update_index % len(other_symbols)]
+        update_index += 1
+        
+        # Retrieve the stored configuration from our global dictionary.
+        config = symbol_config.get(symbol_to_update)
+        if config:
+            used_strike, used_expiry = config
+            resp_other = fyers_api.fetch_option_chain_data(
+                symbol=symbol_to_update,
+                strikecount=used_strike,
+                expiry=used_expiry
+            )
+            if resp_other and 'optionsChain' in resp_other:
+                now_iso = datetime.now().isoformat()
+                store_option_chain_data(symbol_to_update, now_iso, resp_other['optionsChain'], used_strike, used_expiry)
+    return ""
+
+# 4) Recompute & plot total OI using data from the persistent DB.
+@app.callback(
+    Output('oi-graph', 'figure'),
+    Input('stock-dropdown', 'value'),
+    Input('date-picker', 'date'),
+    Input('strike-range-slider', 'value'),
+    Input('interval-component', 'n_intervals')  # to refresh graph on new data
+)
+def update_oi_graph(symbol, sel_date, strike_range, n_int):
     low, high = strike_range
-    sym = data['current_symbol']
-    sd  = data['symbols_data'][sym]
-    x_list = sd['x_data']
+    # Get historical data for the symbol from the database
+    db_data = get_data_from_db(symbol)
+    x_list = db_data['x_data']
 
     call_ts, put_ts = [], []
-    for chain in sd['chain_history']:
-        c = sum(opt.get('oi',0)
+    for chain in db_data['chain_history']:
+        c = sum(opt.get('oi', 0)
                 for opt in chain
-                if opt.get('option_type')=='CE'
-                   and low <= opt.get('strike_price',0) <= high)
-        p = sum(opt.get('oi',0)
+                if opt.get('option_type') == 'CE' and low <= opt.get('strike_price', 0) <= high)
+        p = sum(opt.get('oi', 0)
                 for opt in chain
-                if opt.get('option_type')=='PE'
-                   and low <= opt.get('strike_price',0) <= high)
+                if opt.get('option_type') == 'PE' and low <= opt.get('strike_price', 0) <= high)
         call_ts.append(c)
         put_ts.append(p)
 
     if sel_date:
         x_f, call_f = filter_data_by_date(x_list, call_ts, sel_date)
-        _,    put_f  = filter_data_by_date(x_list, put_ts, sel_date)
-        pd = {
-            'x_data':[dt.isoformat() for dt in x_f],
-            'call_oi_data':call_f,
-            'put_oi_data':put_f
+        _, put_f = filter_data_by_date(x_list, put_ts, sel_date)
+        plot_data = {
+            'x_data': [dt.isoformat() for dt in x_f],
+            'call_oi_data': call_f,
+            'put_oi_data': put_f
         }
     else:
-        pd = {'x_data':x_list, 'call_oi_data':call_ts, 'put_oi_data':put_ts}
+        plot_data = {'x_data': x_list, 'call_oi_data': call_ts, 'put_oi_data': put_ts}
 
-    return generate_oi_figure(pd, sym)
+    return generate_oi_figure(plot_data, symbol)
 
-# 5) Recompute & plot ΔOI
+# 5) Recompute & plot ΔOI using data from the persistent DB.
 @app.callback(
-    Output('change-graph','figure'),
-    Input('data-store','data'),
-    Input('date-picker','date'),
-    Input('strike-range-slider','value')
+    Output('change-graph', 'figure'),
+    Input('stock-dropdown', 'value'),
+    Input('date-picker', 'date'),
+    Input('strike-range-slider', 'value'),
+    Input('interval-component', 'n_intervals')  # to refresh graph on new data
 )
-def update_change_graph(data, sel_date, strike_range):
+def update_change_graph(symbol, sel_date, strike_range, n_int):
     low, high = strike_range
-    sym = data['current_symbol']
-    sd  = data['symbols_data'][sym]
-    x_list = sd['x_data']
+    db_data = get_data_from_db(symbol)
+    x_list = db_data['x_data']
 
     call_chg_ts, put_chg_ts = [], []
-    for chain in sd['chain_history']:
-        cchg = sum(opt.get('oich',0)
+    for chain in db_data['chain_history']:
+        cchg = sum(opt.get('oich', 0)
                    for opt in chain
-                   if opt.get('option_type')=='CE'
-                      and low <= opt.get('strike_price',0) <= high)
-        pchg = sum(opt.get('oich',0)
+                   if opt.get('option_type') == 'CE' and low <= opt.get('strike_price', 0) <= high)
+        pchg = sum(opt.get('oich', 0)
                    for opt in chain
-                   if opt.get('option_type')=='PE'
-                      and low <= opt.get('strike_price',0) <= high)
+                   if opt.get('option_type') == 'PE' and low <= opt.get('strike_price', 0) <= high)
         call_chg_ts.append(cchg)
         put_chg_ts.append(pchg)
 
     if sel_date:
         x_f, call_f = filter_data_by_date(x_list, call_chg_ts, sel_date)
-        _,    put_f  = filter_data_by_date(x_list, put_chg_ts, sel_date)
-        pd = {
-            'x_data_change':[dt.isoformat() for dt in x_f],
-            'call_oi_change_data':call_f,
-            'put_oi_change_data':put_f
+        _, put_f = filter_data_by_date(x_list, put_chg_ts, sel_date)
+        plot_data = {
+            'x_data_change': [dt.isoformat() for dt in x_f],
+            'call_oi_change_data': call_f,
+            'put_oi_change_data': put_f
         }
     else:
-        pd = {
-            'x_data_change':x_list,
-            'call_oi_change_data':call_chg_ts,
-            'put_oi_change_data':put_chg_ts
+        plot_data = {
+            'x_data_change': x_list,
+            'call_oi_change_data': call_chg_ts,
+            'put_oi_change_data': put_chg_ts
         }
 
-    return generate_change_figure(pd, sym)
+    return generate_change_figure(plot_data, symbol)
 
 if __name__ == '__main__':
     app.run(debug=True)
