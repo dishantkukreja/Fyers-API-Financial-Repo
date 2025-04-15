@@ -7,6 +7,8 @@ from data_fetcher import FyersAPI
 import pandas as pd
 import sqlite3
 import json
+from graphs.db_manager import init_db, reset_db, store_option_chain_data, get_data_from_db
+from graphs.config_manager import get_all_configured_symbols, update_symbol_config, get_symbol_config,init_config_table
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Load stock master CSV
@@ -21,7 +23,7 @@ stock_options = [
 # Fyers API setup
 # ──────────────────────────────────────────────────────────────────────────────
 client_id    = "K731S35ZOK"
-access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbi1PUFpxUXdIVFloYlBLM191Z1dsWHFKdGFkazZuRm1Qay11SzItWnRtcW51aWpFZHVGeXYtcmVyOEwyU1RNaVdhdlFSdWtJWWFibkVLOTRmWjBoRGsxbEtUSWVrTmFWaWVxTGE5dURZa2RlQ2RkRT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0NDE3ODAwLCJpYXQiOjE3NDQzNjQ1MDUsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDM2NDUwNSwic3ViIjoiYWNjZXNzX3Rva2VuIn0.18U3uGyCYpOPmiuQr4MK1TBr-dHDyG0YuNUwwl0waG0"
+access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIiwieDoyIl0sImF0X2hhc2giOiJnQUFBQUFCbl9kMmNMbkhWRVpfSXlnRVBubXdQMkxxcG1KWlU0ckw4SXBlbHZCNXBhSFhaUFJjOHNRdmtnRlV1S2lFMjUxT3l5bWpacXFZV3dMbU5fVmxFa0c3VzZqcHVUeUQxUjNnMEw5eFg2am5sT2FDOWpsQT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJmMDkzM2FhMjY4NjJkNGFmMmRkNDk3NWE3MmNkZGI2OTNiNThhOTJkMzcyOWUyYmYzYjdiMGFkYyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWFM0ODAwNyIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzQ0NzYzNDAwLCJpYXQiOjE3NDQ2OTA1ODgsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc0NDY5MDU4OCwic3ViIjoiYWNjZXNzX3Rva2VuIn0.-yI0oZaHuqec91nutc83sisBftmYx-VxAfCujlGJ6UE"
 fyers_api    = FyersAPI(client_id, access_token)
 
 DEFAULT_SYMBOL = "NSE:NIFTYBANK-INDEX"
@@ -30,82 +32,10 @@ DEFAULT_STRIKECOUNT = 10  # Used for initial fetch if needed
 # Record the app’s start time to use as the “backdate” for the first snapshot
 APP_START_TIME = datetime.now().isoformat()
 
-# ──────────────────────────────────────────────────────────────────────────────
-# SQLite Database Helpers
-# ──────────────────────────────────────────────────────────────────────────────
-DB_FILENAME = "option_chain.db"
-
-def init_db():
-    """Initializes the SQLite database and creates the table if necessary."""
-    conn = sqlite3.connect(DB_FILENAME)
-    cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS option_chain_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT,
-            timestamp TEXT,
-            option_chain TEXT,
-            strikecount INTEGER,
-            expiry TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def reset_db():
-    """Clear any existing records so that each app run starts fresh."""
-    conn = sqlite3.connect(DB_FILENAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM option_chain_data")
-    conn.commit()
-    conn.close()
-
-def store_option_chain_data(symbol, timestamp, option_chain, strikecount, expiry):
-    """
-    Inserts a new record into the database.
-    The option_chain is stored as a JSON string.
-    """
-    conn = sqlite3.connect(DB_FILENAME)
-    cur = conn.cursor()
-    cur.execute('''
-        INSERT INTO option_chain_data (symbol, timestamp, option_chain, strikecount, expiry)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (symbol, timestamp, json.dumps(option_chain), strikecount, expiry))
-    conn.commit()
-    conn.close()
-
-def get_data_from_db(symbol):
-    """
-    Retrieves all records from the DB for the given symbol.
-    Returns a dict with keys:
-       'x_data': list of timestamps (as ISO strings)
-       'chain_history': list of option chain data (as Python objects)
-    """
-    conn = sqlite3.connect(DB_FILENAME)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT timestamp, option_chain FROM option_chain_data
-        WHERE symbol = ?
-        ORDER BY timestamp ASC
-    ''', (symbol,))
-    rows = cur.fetchall()
-    conn.close()
-
-    x_data = []
-    chain_history = []
-    for row in rows:
-        x_data.append(row["timestamp"])
-        try:
-            chain = json.loads(row["option_chain"])
-        except Exception:
-            chain = []
-        chain_history.append(chain)
-    return {'x_data': x_data, 'chain_history': chain_history}
-
 # Initialize (and clear) the database at app startup.
 init_db()
-reset_db()
+# reset_db()
+init_config_table()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data‑helper Functions (aggregation and date filtering remain unchanged)
@@ -336,7 +266,7 @@ def update_strike_slider(expiry, fyers_symbol, strikecount):
 # Global variables: activated symbols, round-robin counter, and configuration store.
 activated_symbols = []
 update_index = 0
-symbol_config = {}  # New dictionary to keep each symbol's configuration
+# symbol_config = {}  # New dictionary to keep each symbol's configuration
 
 @app.callback(
     Output('dummy-div', 'children'),
@@ -347,68 +277,28 @@ symbol_config = {}  # New dictionary to keep each symbol's configuration
     State('expiry-dropdown', 'value')
 )
 def fetch_and_store(n_int, n_clicks, active_symbol, strikecount, expiry):
-    global activated_symbols, update_index, symbol_config
-    ctx = callback_context
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-
-    # Update the configuration for the currently active symbol.
-    symbol_config[active_symbol] = (strikecount, expiry)
-
-    # Retrieve any previously stored data for the active symbol.
-    db_data = get_data_from_db(active_symbol)
+    # First, update (or insert) the active symbol's configuration into the DB.
+    update_symbol_config(active_symbol, strikecount, expiry)
     
-    # --- Handle "Submit" trigger for new/updated active symbol ---
-    if trigger_id == 'submit-symbol':
-        if active_symbol not in activated_symbols:
-            activated_symbols.append(active_symbol)
-        if not db_data['x_data']:
-            # For a new symbol, immediately fetch and backdate the first snapshot.
-            resp = fyers_api.fetch_option_chain_data(
-                symbol=active_symbol,
-                strikecount=strikecount,
-                expiry=expiry
-            )
-            if resp and 'optionsChain' in resp:
-                store_option_chain_data(active_symbol, APP_START_TIME, resp['optionsChain'], strikecount, expiry)
-        else:
-            # If the configuration changed while active, fetch an immediate update.
-            resp = fyers_api.fetch_option_chain_data(
-                symbol=active_symbol,
-                strikecount=strikecount,
-                expiry=expiry
-            )
-            if resp and 'optionsChain' in resp:
-                now_iso = datetime.now().isoformat()
-                store_option_chain_data(active_symbol, now_iso, resp['optionsChain'], strikecount, expiry)
+    # Get all configured symbols from the DB.
+    symbols_to_update = get_all_configured_symbols()
     
-    # --- Always update data for the currently active symbol ---
-    resp = fyers_api.fetch_option_chain_data(
-        symbol=active_symbol,
-        strikecount=strikecount,
-        expiry=expiry
-    )
-    if resp and 'optionsChain' in resp:
-        now_iso = datetime.now().isoformat()
-        store_option_chain_data(active_symbol, now_iso, resp['optionsChain'], strikecount, expiry)
-    
-    # --- Round-Robin update for inactive (activated) symbols ---
-    other_symbols = [s for s in activated_symbols if s != active_symbol]
-    if other_symbols:
-        symbol_to_update = other_symbols[update_index % len(other_symbols)]
-        update_index += 1
-        
-        # Retrieve the stored configuration from our global dictionary.
-        config = symbol_config.get(symbol_to_update)
+    for symbol in symbols_to_update:
+        # Fetch the configuration for each symbol.
+        config = get_symbol_config(symbol)
         if config:
-            used_strike, used_expiry = config
-            resp_other = fyers_api.fetch_option_chain_data(
-                symbol=symbol_to_update,
-                strikecount=used_strike,
-                expiry=used_expiry
+            # Fetch option chain data using the stored configuration.
+            resp = fyers_api.fetch_option_chain_data(
+                symbol=symbol,
+                strikecount=config['strikecount'],
+                expiry=config['expiry']
             )
-            if resp_other and 'optionsChain' in resp_other:
+            if resp and 'optionsChain' in resp:
                 now_iso = datetime.now().isoformat()
-                store_option_chain_data(symbol_to_update, now_iso, resp_other['optionsChain'], used_strike, used_expiry)
+                store_option_chain_data(
+                    symbol, now_iso, resp['optionsChain'],
+                    config['strikecount'], config['expiry']
+                )
     return ""
 
 # 4) Recompute & plot total OI using data from the persistent DB.
