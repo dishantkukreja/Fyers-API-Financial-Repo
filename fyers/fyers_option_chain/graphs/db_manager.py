@@ -1,4 +1,5 @@
 import sqlite3
+import json
 
 DB_FILENAME = "option_chain.db"
 
@@ -30,6 +31,37 @@ def store_option_chain_data(symbol, timestamp, option_chain_json, strikecount, e
             (symbol, timestamp, option_chain_json, strikecount, expiry)
         )
         conn.commit()
+
+
+def get_recent_data(symbol, limit=500):
+    """
+    Return up to `limit` most recent rows for `symbol`,
+    newest last (so you can plot in time order).
+    """
+    with sqlite3.connect(DB_FILENAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        # get the last `limit` rows by timestamp
+        cur.execute("""
+            SELECT timestamp, option_chain
+              FROM (
+                   SELECT timestamp, option_chain
+                     FROM option_chain_data
+                    WHERE symbol=?
+                 ORDER BY timestamp DESC
+                   LIMIT ?
+                  )
+         ORDER BY timestamp ASC
+        """, (symbol, limit))
+        rows = cur.fetchall()
+
+    # parse the JSON chains back into lists
+    return [
+        {'timestamp': r['timestamp'],
+         'chain':     json.loads(r['option_chain'])}
+        for r in rows
+    ]
+
 
 def get_data_from_db(symbol):
     with sqlite3.connect(DB_FILENAME) as conn:

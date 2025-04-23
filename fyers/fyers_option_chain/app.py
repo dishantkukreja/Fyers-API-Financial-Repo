@@ -8,7 +8,7 @@ import pandas as pd
 import json
 import logging
 
-from graphs.db_manager import init_db, store_option_chain_data, get_data_from_db, reset_db
+from graphs.db_manager import get_recent_data, init_db, store_option_chain_data, get_data_from_db, reset_db
 from graphs.config_manager import (
     init_config_table,
     get_all_configured_symbols,
@@ -362,51 +362,52 @@ def update_config(symbol, strikecount, expiry):
 @app.callback(
     Output('oi-graph','figure'),
     [
-     Input('stock-dropdown','value'),
-     Input('strike-range-slider','value'),
-     Input('date-picker','date'),
-     Input('interval-component','n_intervals'),
+      Input('stock-dropdown','value'),
+      Input('strike-range-slider','value'),
+      Input('date-picker','date'),
+      Input('interval-component','n_intervals'),
     ]
 )
 def update_oi_graph(symbol, strike_range, sel_date, n):
-    cache = history_cache.get(symbol, [])
+    
+    entries = get_recent_data(symbol, limit=MAX_CACHE_SIZE)
     logging.debug(f"[update_oi_graph] n={n} symbol={symbol}"
-                  f" cache_points={len(cache)}")
+                  f" cache_points={len(entries)}")
 
     if sel_date:
         # filter per‐day
         xs, ys_call = filter_data(
-            [e['timestamp'] for e in cache],
+            [e['timestamp'] for e in entries],
             [sum(opt['oi'] for opt in e['chain']
                  if opt['option_type']=='CE'
                  and strike_range[0] <= opt['strike_price'] <= strike_range[1])
-             for e in cache],
+             for e in entries],
             sel_date
         )
         _, ys_put = filter_data(
-            [e['timestamp'] for e in cache],
+            [e['timestamp'] for e in entries],
             [sum(opt['oi'] for opt in e['chain']
                  if opt['option_type']=='PE'
                  and strike_range[0] <= opt['strike_price'] <= strike_range[1])
-             for e in cache],
+             for e in entries],
             sel_date
         )
         xs = [parse_datetime(x) for x in xs]
         plot_data = {'x': xs, 'call': ys_call, 'put': ys_put}
     else:
         # all‐time
-        xs = [parse_datetime(e['timestamp']) for e in cache]
+        xs = [parse_datetime(e['timestamp']) for e in entries]
         ys_call = [
             sum(opt['oi'] for opt in e['chain']
                 if opt['option_type']=='CE'
                 and strike_range[0] <= opt['strike_price'] <= strike_range[1])
-            for e in cache
+            for e in entries
         ]
         ys_put = [
             sum(opt['oi'] for opt in e['chain']
                 if opt['option_type']=='PE'
                 and strike_range[0] <= opt['strike_price'] <= strike_range[1])
-            for e in cache
+            for e in entries
         ]
         plot_data = {'x': xs, 'call': ys_call, 'put': ys_put}
 
@@ -422,7 +423,9 @@ def update_oi_graph(symbol, strike_range, sel_date, n):
     ]
 )
 def update_change_graph(symbol, strike_range, sel_date, n):
-    cache = history_cache.get(symbol, [])
+
+    cache = get_recent_data(symbol, limit=MAX_CACHE_SIZE)
+    
     logging.debug(f"[update_change_graph] n={n} symbol={symbol}"
                   f" cache_points={len(cache)}")
 
